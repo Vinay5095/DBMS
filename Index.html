@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sheets DB Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        @import url('https://rsms.me/inter/inter.css');
+        body { font-family: 'Inter', sans-serif; }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, bottom 0.3s, visibility 0.3s;
+            z-index: 100;
+        }
+        .toast.show {
+            opacity: 1;
+            bottom: 40px;
+            visibility: visible;
+        }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            transform: scale(0.95);
+            transition: transform 0.3s;
+        }
+        .modal-overlay.show .modal-content {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Generic Modal -->
+    <div id="modal" class="modal-overlay">
+        <div class="modal-content" id="modal-content">
+            <!-- Modal content will be injected here -->
+        </div>
+    </div>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-700">Sheets DB Client</h1>
+            <div id="auth-container"></div>
+        </header>
+
+        <main id="app-content" class="hidden">
+            <!-- Add New Record Form -->
+            <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                <h2 class="text-2xl font-semibold mb-4">Add New Item</h2>
+                <form id="add-item-form" class="space-y-4">
+                    <!-- Form fields... -->
+                    <div>
+                        <label for="title" class="block text-sm font-medium text-gray-600">Title</label>
+                        <input type="text" id="title" name="title" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                        <p id="title-error" class="text-red-500 text-xs mt-1"></p>
+                    </div>
+                    <div>
+                        <label for="contact_email" class="block text-sm font-medium text-gray-600">Contact Email</label>
+                        <input type="email" id="contact_email" name="contact_email" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                         <p id="contact_email-error" class="text-red-500 text-xs mt-1"></p>
+                    </div>
+                    <div>
+                        <label for="file-upload" class="block text-sm font-medium text-gray-600">Attach File (Optional)</label>
+                        <input type="file" id="file-upload" name="file-upload" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100">
+                    </div>
+                    <button type="submit" id="submit-btn" class="w-full inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400">
+                        Add Item
+                    </button>
+                </form>
+            </div>
+
+            <!-- Records Display -->
+            <div>
+                <h2 class="text-2xl font-semibold mb-4">Your Items</h2>
+                <div id="records-container" class="bg-white p-6 rounded-lg shadow-md space-y-4">
+                    <!-- Skeleton Loader -->
+                    <div id="skeleton-loader">
+                        <div class="animate-pulse space-y-4">
+                            <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                            <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                         <div class="animate-pulse space-y-4 mt-4">
+                            <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                            <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                    <!-- Records will be injected here -->
+                </div>
+            </div>
+        </main>
+        
+        <div id="login-prompt" class="text-center bg-white p-8 rounded-lg shadow-md">
+            <p class="text-xl">Please sign in with Google to use the application.</p>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================================================
+        //  CLIENT CONFIGURATION
+        // =========================================================================================
+        const API_ENDPOINT = 'https://script.google.com/a/macros/atcoengineer.net/s/AKfycbx_V3zBnQ4Rh67jH__WTUTYfMp3XM4YY1C9K3rNOFUoFIBMLjthN5CPaMffsK6HVeGN/exec'; // <-- This is set for you
+        const GOOGLE_CLIENT_ID = '91665190497-v92avlp3a25crpvde0s19rcikcfld9no.apps.googleusercontent.com'; // <-- This is set for you
+        // =========================================================================================
+
+        let idToken = null;
+        let recordsCache = []; // Simple cache to hold records for editing
+
+        // --- UI & Modal Functions ---
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast show ${type}`;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        function openModal(content) {
+            document.getElementById('modal-content').innerHTML = content;
+            document.getElementById('modal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('show');
+        }
+
+        // --- Authentication ---
+        function handleCredentialResponse(response) {
+            idToken = response.credential;
+            document.getElementById('login-prompt').classList.add('hidden');
+            document.getElementById('app-content').classList.remove('hidden');
+            document.getElementById('auth-container').innerHTML = '<button onclick="signOut()" class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600">Sign Out</button>';
+            showToast('Signed in successfully!');
+            fetchRecords();
+        }
+
+        function signOut() {
+            idToken = null;
+            recordsCache = [];
+            google.accounts.id.disableAutoSelect();
+            document.getElementById('login-prompt').classList.remove('hidden');
+            document.getElementById('app-content').classList.add('hidden');
+            renderGoogleButton();
+            showToast('Signed out.');
+        }
+
+        function renderGoogleButton() {
+            google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleCredentialResponse
+            });
+            google.accounts.id.renderButton(
+                document.getElementById("auth-container"), { theme: "outline", size: "large" }
+            );
+            google.accounts.id.prompt();
+        }
+        
+        window.onload = function () {
+            if (API_ENDPOINT.includes('YOUR_APPS_SCRIPT_WEB_APP_URL')) {
+                document.body.innerHTML = `<div class="m-8 p-4 bg-red-100 text-red-800 rounded-lg"><strong>Configuration Error:</strong> Please set the API_ENDPOINT variable in the script.</div>`;
+                return;
+            }
+            renderGoogleButton();
+            document.getElementById('modal').addEventListener('click', (e) => {
+                if (e.target.id === 'modal') closeModal();
+            });
+        };
+
+        // --- API Communication ---
+        async function apiCall(method, action, data = {}) {
+            if (!idToken) {
+                showToast('You must be signed in.', 'error');
+                return;
+            }
+
+            const url = method === 'GET' ? `${API_ENDPOINT}?action=${action}&idToken=${idToken}&${new URLSearchParams(data)}` : API_ENDPOINT;
+            const options = { method: 'POST', body: JSON.stringify({ ...data, action, idToken }), headers: { 'Content-Type': 'application/json' } };
+            if (method === 'GET') {
+                delete options.body;
+                options.method = 'GET';
+            }
+
+            try {
+                const response = await fetch(url, options);
+                const result = await response.json();
+
+                if (result.status !== 'success') {
+                    let errorMessage = result.message || 'An unknown error occurred.';
+                    if (result.errors) {
+                        Object.keys(result.errors).forEach(field => {
+                            const errorEl = document.getElementById(`${field}-error`) || document.getElementById(`edit-${field}-error`);
+                            if (errorEl) errorEl.textContent = result.errors[field];
+                        });
+                        errorMessage = 'Please fix the errors above.';
+                    }
+                    throw new Error(errorMessage);
+                }
+                return result;
+            } catch (error) {
+                showToast(error.message, 'error');
+                throw error;
+            }
+        }
+
+        // --- CRUD Operations ---
+        async function fetchRecords() {
+            const container = document.getElementById('records-container');
+            const skeleton = document.getElementById('skeleton-loader');
+            skeleton.style.display = 'block';
+            container.innerHTML = ''; // Clear previous records
+            container.appendChild(skeleton);
+
+            try {
+                const result = await apiCall('GET', 'getRecords');
+                recordsCache = result.data; // Cache the data
+                renderRecords(recordsCache);
+            } catch (error) {
+                container.innerHTML = `<p class="text-red-500">Failed to load records.</p>`;
+            } finally {
+                skeleton.style.display = 'none';
+            }
+        }
+
+        function renderRecords(records) {
+            const container = document.getElementById('records-container');
+            container.innerHTML = ''; // Clear skeleton
+            if (records.length === 0) {
+                container.innerHTML = '<p>No items found. Add one above!</p>';
+                return;
+            }
+            records.forEach(record => {
+                const recordEl = document.createElement('div');
+                recordEl.className = 'border-b pb-4 flex justify-between items-start';
+                recordEl.innerHTML = `
+                    <div>
+                        <p class="font-bold">${record.title || 'No Title'}</p>
+                        <p class="text-sm text-gray-600">${record.contact_email || ''}</p>
+                        ${record.file_url ? `<a href="${record.file_url}" target="_blank" class="text-sm text-indigo-600 hover:underline">View Attachment</a>` : ''}
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="edit-btn p-2 text-gray-500 hover:text-indigo-600" data-id="${record.id}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <button class="delete-btn p-2 text-gray-500 hover:text-red-600" data-id="${record.id}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(recordEl);
+            });
+        }
+        
+        // --- Add Form ---
+        document.getElementById('add-item-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Adding...';
+            document.querySelectorAll('p[id$="-error"]').forEach(el => el.textContent = '');
+
+            const recordData = {
+                title: document.getElementById('title').value,
+                contact_email: document.getElementById('contact_email').value
+            };
+
+            try {
+                const fileInput = document.getElementById('file-upload');
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    const base64Data = await toBase64(file);
+                    const fileUploadResult = await apiCall('POST', 'uploadFile', { file: { base64Data, fileName: file.name, mimeType: file.type } });
+                    recordData.file_url = fileUploadResult.data.fileUrl;
+                    recordData.file_id = fileUploadResult.data.fileId;
+                }
+                await apiCall('POST', 'addRecord', { data: recordData });
+                showToast('Item added successfully!');
+                this.reset();
+                fetchRecords();
+            } catch (error) { /* Error toast is shown by apiCall */ } 
+            finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Item';
+            }
+        });
+
+        // --- Edit and Delete Event Handling ---
+        document.getElementById('records-container').addEventListener('click', function(e) {
+            const editBtn = e.target.closest('.edit-btn');
+            const deleteBtn = e.target.closest('.delete-btn');
+            if (editBtn) {
+                handleEdit(editBtn.dataset.id);
+            }
+            if (deleteBtn) {
+                handleDelete(deleteBtn.dataset.id);
+            }
+        });
+
+        function handleEdit(id) {
+            const record = recordsCache.find(r => r.id === id);
+            if (!record) return;
+
+            openModal(`
+                <h2 class="text-2xl font-semibold mb-4">Edit Item</h2>
+                <form id="edit-item-form" class="space-y-4" data-id="${id}">
+                    <div>
+                        <label for="edit-title" class="block text-sm font-medium text-gray-600">Title</label>
+                        <input type="text" id="edit-title" value="${record.title}" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                        <p id="edit-title-error" class="text-red-500 text-xs mt-1"></p>
+                    </div>
+                    <div>
+                        <label for="edit-contact_email" class="block text-sm font-medium text-gray-600">Contact Email</label>
+                        <input type="email" id="edit-contact_email" value="${record.contact_email}" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                        <p id="edit-contact_email-error" class="text-red-500 text-xs mt-1"></p>
+                    </div>
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Changes</button>
+                    </div>
+                </form>
+            `);
+
+            document.getElementById('edit-item-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const updatedData = {
+                    title: document.getElementById('edit-title').value,
+                    contact_email: document.getElementById('edit-contact_email').value
+                };
+                try {
+                    await apiCall('POST', 'updateRecord', { id: this.dataset.id, data: updatedData });
+                    showToast('Item updated successfully!');
+                    closeModal();
+                    fetchRecords();
+                } catch (error) { /* Error handled in apiCall */ }
+            });
+        }
+
+        function handleDelete(id) {
+            openModal(`
+                <h2 class="text-xl font-semibold mb-4">Are you sure?</h2>
+                <p class="text-gray-600 mb-6">Do you really want to delete this item? This action cannot be undone.</p>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button type="button" id="confirm-delete-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Delete</button>
+                </div>
+            `);
+
+            document.getElementById('confirm-delete-btn').onclick = async () => {
+                try {
+                    await apiCall('POST', 'deleteRecord', { id });
+                    showToast('Item deleted successfully!');
+                    closeModal();
+                    fetchRecords();
+                } catch (error) { /* Error handled in apiCall */ }
+            };
+        }
+
+        // --- Helpers ---
+        const toBase64 = file => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+        });
+
+    </script>
+</body>
+</html>
